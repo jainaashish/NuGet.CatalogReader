@@ -43,6 +43,7 @@ namespace NuGetMirror
             var onlyStableVersion = cmd.Option("--stable-only", "Include only stable versions of that package in the result", CommandOptionType.NoValue);
             var startOption = cmd.Option("--start", "Beginning of the commit time range. Packages commited AFTER this time will be included. (The cursor value will not be used with this option.)", CommandOptionType.SingleValue);
             var endOption = cmd.Option("--end", "End of the commit time range. Packages commited at this time will be included.", CommandOptionType.SingleValue);
+            var onlyListedVersion = cmd.Option("--listed", "Include only the listed versions of that package in the result", CommandOptionType.NoValue);
 
             var argRoot = cmd.Argument(
                 "[root]",
@@ -230,9 +231,38 @@ namespace NuGetMirror
                             entryQuery = entryQuery.Where(e => !e.Version.IsPrerelease);
                         }
 
-                        // Latest version only
-                        if (onlyLatestVersion.HasValue())
+                        // Remove all the unlisted versions
+                        if (onlyListedVersion.HasValue())
                         {
+                            var idTasks = new List<Task<CatalogEntry>>();
+                            var entries = new List<CatalogEntry>();
+
+                            var packageIds = entryQuery.GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                                .ToDictionary(y => y.Key, y => y.OrderByDescending(z => z.Version));
+
+                            foreach (var id in packageIds.Keys)
+                            {
+                                if (idTasks.Count >= 32)
+                                {
+                                    var task = await Task.WhenAny(idTasks);
+                                    idTasks.Remove(task);
+                                    if (task.Result != null)
+                                    {
+                                        entries.Add(task.Result);
+                                    }
+                                }
+
+                                idTasks.Add(Task.Run(() => GetListedVersionAsync(packageIds[id])));
+                            }
+
+                            entries.AddRange(await Task.WhenAll(idTasks));
+
+                            entryQuery = entries.Where(entry => entry != null);
+
+                        }
+                        else if (onlyLatestVersion.HasValue())
+                        {
+                            // Latest version only
                             entryQuery = entryQuery.GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
                                 .Select(y => y.OrderByDescending(z => z.Version)
                                 .First());
@@ -369,6 +399,19 @@ namespace NuGetMirror
 
                 return 0;
             });
+        }
+
+        private static async Task<CatalogEntry> GetListedVersionAsync(IEnumerable<CatalogEntry> entries)
+        {
+            var orderedEntries = entries.OrderByDescending(entry => entry.Version);
+            foreach (var entry in orderedEntries)
+            {
+                if (await entry.IsListedAsync())
+                {
+                    return entry;
+                }
+            }
+            return null;
         }
 
         private static async Task CompleteTaskAsync(List<string> files, List<Task<NupkgResult>> tasks, List<CatalogEntry> done)

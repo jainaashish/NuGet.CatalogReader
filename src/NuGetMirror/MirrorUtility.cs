@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NuGet.Common;
@@ -14,6 +15,11 @@ namespace NuGetMirror
     public static class MirrorUtility
     {
         private const string CursorFile = "cursor.json";
+
+        public static Func<T, bool> Convert<T>(Func<T, Task<bool>> func)
+        {
+            return t => func(t).Result;
+        }
 
         /// <summary>
         /// cursor.json path

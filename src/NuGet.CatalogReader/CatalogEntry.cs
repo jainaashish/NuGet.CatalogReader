@@ -323,9 +323,13 @@ namespace NuGet.CatalogReader
         /// </summary>
         public async Task<bool> IsListedAsync(CancellationToken token)
         {
-            var json = await GetPackageRegistrationUriAsync(token);
-
-            return json.GetJObjectProperty<bool>("listed");
+            try
+            {
+                var json = await GetPackageRegistrationUriAsync(token);
+                return json.GetJObjectProperty<bool>("listed");
+            }
+            catch (Exception) { }
+            return false;
         }
 
         /// <summary>
